@@ -213,13 +213,18 @@ class LotteryManager {
                     console.error(`[MessageUpdater] Channel not found for lottery ${lottery.id}`);
                     return;
                 }
-                
+
                 // Always attempt to update the message
                 const { updateLotteryMessage } = require('./messageUpdater');
-                await updateLotteryMessage(channel, lottery.messageId, lottery, lottery.status === 'active');
-                
-                // Then check if we need to stop updates
-                if (lottery.status === 'ended' || lottery.status === 'expired' || lottery.status === 'cancelled') {
+
+                // For expired manual lotteries, don't include buttons
+                const includeButtons = lottery.status === 'active' || 
+                    (lottery.isManualDraw && lottery.status === 'expired');
+
+                await updateLotteryMessage(channel, lottery.messageId, lottery, includeButtons);
+
+                // Only stop updates for ended or cancelled lotteries
+                if (lottery.status === 'ended' || lottery.status === 'cancelled') {
                     console.log(`[MessageUpdater] Stopping updates for ${lottery.id} (${lottery.status})`);
                     if (this.updateIntervals.has(lottery.id)) {
                         clearInterval(this.updateIntervals.get(lottery.id));
@@ -244,6 +249,8 @@ class LotteryManager {
     // Calculate update frequency based on remaining time
     calculateUpdateFrequency(endTime) {
         const remaining = endTime - Date.now();
+        if (remaining <= -300000) return 30000; // Over 5 mins expired: 30s updates
+        if (remaining <= 0) return 5000; // Recently expired: 5s updates
         if (remaining <= 60000) return 5000; // Last minute: 5s updates
         if (remaining <= 300000) return 15000; // Last 5 minutes: 15s
         return 30000; // Default: 30s
@@ -252,19 +259,29 @@ class LotteryManager {
     // End a lottery
     async endLottery(lotteryId) {
         const lottery = this.getLottery(lotteryId);
-        if (!lottery || lottery.status !== "active") return;
+        if (!lottery || (lottery.status !== "active" && lottery.status !== "expired")) return;
 
         try {
-            // Clear timer but keep interval running until we're done
-            clearTimeout(this.timers.get(lotteryId));
+            // Clear timer and update intervals
+            if (this.timers.has(lotteryId)) {
+                clearTimeout(this.timers.get(lotteryId));
+                this.timers.delete(lotteryId);
+            }
 
-            // For manual draw lotteries, just update the message to show expired status
+            // For manual draw lotteries, update status and maintain update interval
             if (lottery.isManualDraw) {
                 lottery.status = "expired";
                 const channel = await this.client.channels.fetch(lottery.channelid);
                 if (channel) {
                     await channel.send(`⏰ The lottery for ${lottery.prize} has ended. Waiting for manual draw using /draw command.`);
-                    await updateLotteryMessage(channel, lottery.messageId, lottery, false);
+
+                    // Ensure message updater is running
+                    if (!this.updateIntervals.has(lottery.id)) {
+                        this.startUpdateInterval(lottery);
+                    }
+
+                    const { updateLotteryMessage } = require('./messageUpdater');
+                    await updateLotteryMessage(channel, lottery.messageId, lottery, true);
                 }
                 await this.updateStatus(lotteryId, "expired");
                 return;
@@ -444,20 +461,51 @@ class LotteryManager {
                         continue;
                     }
 
-                    // Check if lottery should be active
+                    // Check lottery status conditions
                     const isExpired = lotteryData.endTime <= now;
                     const shouldBeActive = !isExpired && lotteryData.status === "active";
+                    const shouldRestore = shouldBeActive || 
+                        (lotteryData.isManualDraw && lotteryData.status === "expired") ||
+                        (isExpired && lotteryData.status === "active");
 
-                    if (shouldBeActive || (lotteryData.isManualDraw && lotteryData.status === "expired")) {
+                    if (shouldRestore) {
                         console.log(`[Restoration] Reinitializing lottery ${lotteryData.id}`);
 
                         // Store in memory
                         this.lotteries.set(lotteryData.id, lotteryData);
 
-                        // Start message updater for both active and expired manual draw lotteries
-                        if (shouldBeActive || (lotteryData.isManualDraw && lotteryData.status === "expired")) {
-                            this.startUpdateInterval(lotteryData);
+                        // Handle expired active lottery
+                        if (isExpired && lotteryData.status === "active") {
+                            if (lotteryData.isManualDraw) {
+                                console.log(`[Restoration] Setting manual draw lottery ${lotteryData.id} to expired`);
+                                lotteryData.status = "expired";
+                                await this.updateStatus(lotteryData.id, "expired");
+                                // Store before starting interval
+                                this.lotteries.set(lotteryData.id, lotteryData);
+                                // Start update interval for expired manual lottery
+                                this.startUpdateInterval(lotteryData);
+                            } else {
+                                console.log(`[Restoration] Ending expired auto-draw lottery ${lotteryData.id}`);
+                                await this.endLottery(lotteryData.id);
+                                continue;
+                            }
                         }
+
+                        // For manual draw expired lotteries, notify admin
+                        if (lotteryData.isManualDraw && lotteryData.status === "expired") {
+                            const channel = await this.client.channels.fetch(lotteryData.channelid);
+                            if (channel) {
+                                try {
+                                    const admin = await this.client.users.fetch(lotteryData.createdBy);
+                                    await admin.send(`⚠️ Manual draw lottery ${lotteryData.id} (${lotteryData.prize}) has been restored and is waiting for draw.`);
+                                } catch (error) {
+                                    console.error(`Failed to notify admin for lottery ${lotteryData.id}:`, error);
+                                }
+                            }
+                        }
+
+                        // Start message updater for active and expired manual draw lotteries
+                        this.startUpdateInterval(lotteryData);
 
                         // Set timer only for active non-manual lotteries
                         if (shouldBeActive && !lotteryData.isManualDraw) {

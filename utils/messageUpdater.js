@@ -25,8 +25,10 @@ async function updateLotteryMessage(channel, messageId, lottery, includeButtons 
             components.push(createActionRow(lottery.id));
         }
 
-        // If lottery is ended/expired, stop further updates
-        if (lottery.status === 'ended' || lottery.status === 'expired' || lottery.status === 'cancelled') {
+        // Only stop updates for ended or cancelled lotteries
+        // Keep updating expired manual lotteries
+        if ((lottery.status === 'ended' || lottery.status === 'cancelled') ||
+            (lottery.status === 'expired' && !lottery.isManualDraw)) {
             if (lottery.updateIntervals?.has(lottery.id)) {
                 clearInterval(lottery.updateIntervals.get(lottery.id));
                 lottery.updateIntervals.delete(lottery.id);
