@@ -27,8 +27,13 @@ module.exports = {
             return;
         }
 
-        if (lottery.status !== 'active' && lottery.status !== 'expired') {
+        if (lottery.status === 'ended' || lottery.status === 'cancelled') {
             await interaction.reply({ content: 'This lottery cannot be drawn anymore!', ephemeral: true });
+            return;
+        }
+
+        if (lottery.status !== 'active' && lottery.status !== 'expired') {
+            await interaction.reply({ content: 'Invalid lottery status for drawing!', ephemeral: true });
             return;
         }
 

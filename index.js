@@ -95,23 +95,7 @@ client.on('interactionCreate', async interaction => {
     }
 });
 
-// Register slash commands
-const rest = new REST({ version: "10" }).setToken(config.token);
-
-(async () => {
-    try {
-        console.log("Started refreshing application (/) commands.");
-        const commands = [];
-        for (const file of commandFiles) {
-            const command = require(path.join(commandsPath, file));
-            if ("data" in command) commands.push(command.data.toJSON());
-        }
-        await rest.put(Routes.applicationCommands(config.clientId), { body: commands });
-        console.log("Successfully reloaded application (/) commands.");
-    } catch (error) {
-        console.error("Error registering commands:", error);
-    }
-})();
+// Commands are registered via deploy-commands.js
 
 // Initialize lottery manager
 const { lotteryManager } = require("./utils/lotteryManager");
