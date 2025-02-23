@@ -2,31 +2,6 @@
 const { ButtonBuilder, ButtonStyle, ActionRowBuilder } = require('discord.js');
 const messageTemplates = require('./messageTemplates');
 
-const embedUpdateIntervals = new Map();
-
-function startEmbedUpdateTimer(channel, messageId, lottery, includeButtons) {
-    if (embedUpdateIntervals.has(messageId)) {
-        clearInterval(embedUpdateIntervals.get(messageId));
-    }
-
-    const interval = setInterval(async () => {
-        try {
-            await updateLotteryMessage(channel, messageId, lottery, includeButtons);
-            
-            if (lottery.status === 'ended' || lottery.status === 'cancelled') {
-                clearInterval(embedUpdateIntervals.get(messageId));
-                embedUpdateIntervals.delete(messageId);
-            }
-        } catch (error) {
-            console.error(`[EmbedUpdate] Error updating embed for lottery ${lottery.id}:`, error);
-            clearInterval(embedUpdateIntervals.get(messageId));
-            embedUpdateIntervals.delete(messageId);
-        }
-    }, 1000); // Update every second
-
-    embedUpdateIntervals.set(messageId, interval);
-}
-
 function createActionRow(lotteryId) {
     return new ActionRowBuilder().addComponents(
         new ButtonBuilder()
@@ -45,11 +20,6 @@ async function updateLotteryMessage(channel, messageId, lottery, includeButtons 
         const message = await channel.messages.fetch(messageId);
         const updatedEmbed = messageTemplates.createLotteryEmbed(lottery);
 
-        // Start embed update timer if not already running
-        if (!embedUpdateIntervals.has(messageId) && lottery.status === 'active') {
-            startEmbedUpdateTimer(channel, messageId, lottery, includeButtons);
-        }
-        
         const components = [];
         if (includeButtons && lottery.status === 'active') {
             components.push(createActionRow(lottery.id));
@@ -59,18 +29,12 @@ async function updateLotteryMessage(channel, messageId, lottery, includeButtons 
             components.length = 0;
         }
 
-        const currentEmbed = message.embeds[0];
-        const needsUpdate = !currentEmbed || 
-            currentEmbed.data.description !== updatedEmbed.data.description ||
-            JSON.stringify(currentEmbed.data.fields) !== JSON.stringify(updatedEmbed.data.fields);
+        await message.edit({
+            embeds: [updatedEmbed],
+            components: components
+        });
 
-        if (needsUpdate) {
-            await message.edit({
-                embeds: [updatedEmbed],
-                components: components
-            });
-            console.log(`[Update] Successfully updated message for lottery ${lottery.id}`);
-        }
+        console.log(`[Update] Successfully updated message for lottery ${lottery.id}`);
         return true;
     } catch (error) {
         console.error(`[Update] Error updating message for lottery ${lottery.id}:`, error);
@@ -80,6 +44,5 @@ async function updateLotteryMessage(channel, messageId, lottery, includeButtons 
 
 module.exports = {
     updateLotteryMessage,
-    createActionRow,
-    startEmbedUpdateTimer
+    createActionRow
 };

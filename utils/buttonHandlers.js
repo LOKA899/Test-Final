@@ -4,7 +4,6 @@ const messageTemplates = require('./messageTemplates');
 const notificationManager = require('./notificationManager');
 const skullManager = require('./skullManager');
 const supabase = require('./supabaseClient');
-const { updateLotteryMessage } = require('./messageUpdater');
 
 async function handleButton(interaction) {
     const [action, lotteryId, quantity, type] = interaction.customId.split('_');

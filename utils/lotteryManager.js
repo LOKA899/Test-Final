@@ -260,11 +260,11 @@ class LotteryManager {
 
     calculateUpdateFrequency(endTime) {
         const remaining = endTime - Date.now();
-        if (remaining <= -300000) return 15000; // Over 5 mins expired: 15s updates
-        if (remaining <= 0) return 3000; // Recently expired: 3s updates
-        if (remaining <= 60000) return 1000; // Last minute: 1s updates
-        if (remaining <= 300000) return 5000; // Last 5 minutes: 5s updates
-        return 10000; // Default: 10s updates
+        if (remaining <= -300000) return 30000; // Over 5 mins expired: 30s updates
+        if (remaining <= 0) return 5000; // Recently expired: 5s updates
+        if (remaining <= 60000) return 5000; // Last minute: 5s updates
+        if (remaining <= 300000) return 15000; // Last 5 minutes: 15s
+        return 30000; // Default: 30s
     }
 
     startExpirationCheck(lottery) {
